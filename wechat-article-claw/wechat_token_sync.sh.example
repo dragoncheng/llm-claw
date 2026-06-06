@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Copy to wechat_token_sync.sh and fill in credentials path / remote host.
+scp -P 22 /path/to/llm-claw/wechat-article-claw/credentials.json user@host:/path/to/wechat-claw/

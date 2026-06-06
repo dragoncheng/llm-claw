@@ -1,0 +1,14 @@
+# Secrets & local config
+otp/secrets.json
+wechat-article-claw/credentials.json
+wechat-article-claw/credentials_test.json
+wechat-article-claw/config.json
+wechat-article-claw/wechat_token_sync.sh
+
+# Runtime / build
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/output/
+.DS_Store
+wechat-article-claw/login_qrcode.png

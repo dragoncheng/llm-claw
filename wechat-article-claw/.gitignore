@@ -1,0 +1,8 @@
+output/
+credentials.json
+credentials_test.json
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+login_qrcode.png

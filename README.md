@@ -2,6 +2,19 @@
 
 LLM / Agent 相关抓取与剪藏工具集，配合 [utils](https://github.com/dragoncheng/utils) 中的 `cslogin` 使用。
 
+## 克隆
+
+```bash
+git clone git@github.com:dragoncheng/llm-claw.git
+```
+
+在 `utils` 仓库中作为 submodule 引入：
+
+```bash
+git submodule add git@github.com:dragoncheng/llm-claw.git llm-claw
+git submodule update --init --recursive
+```
+
 ## 子模块
 
 | 目录 | 说明 |

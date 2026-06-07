@@ -13,9 +13,14 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from feeds_common import DEFAULT_TIMEOUT, safe_filename, slugify, yaml_quote
 from read_wechat_article import WechatArticleFetcher, WechatArticleParser
 
-AD_CLASS_RE = re.compile(
-    r"ad|ads|advert|promo|promotion|mpad|mpcpc|js_ad|sponsor|banner|"
-    r"qr[_-]?code|qrcode|profile[_-]?card|js_jump|reward|vote_area",
+AD_CLASS_TOKENS = frozenset({
+    "ad", "ads", "advert", "advertisement", "promo", "promotion",
+    "mpad", "mpcpc", "js_ad", "jsad", "sponsor", "banner",
+    "qrcode", "qr_code", "profile_card", "profilecard", "js_jump",
+    "reward", "vote_area", "votearea",
+})
+AD_CLASS_COMPOUND_RE = re.compile(
+    r"js_ad|mpcpc|qr[_-]?code|profile[_-]?card|vote_area",
     re.I,
 )
 AD_URL_RE = re.compile(
@@ -30,10 +35,12 @@ PROMO_TEXT_RE = re.compile(
 )
 MIN_IMAGE_PX = 80
 
-CONTAINER_TAGS = frozenset(
-    {"section", "div", "figure", "blockquote", "ul", "ol", "li", "span"}
-)
+CHAPTER_NUM_RE = re.compile(r"^0?\d{1,2}$")
+INLINE_HEADING_TAGS = frozenset({"b", "strong", "font"})
 HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4"})
+CONTAINER_TAGS = frozenset(
+    {"section", "div", "figure", "blockquote", "ul", "ol", "li"}
+)
 
 
 def parse_pub_year(pub_time: str, fallback: str | None = None) -> str:
@@ -75,6 +82,23 @@ def extract_account(page_html: str, author: str) -> str:
     return ""
 
 
+def _tag_class_tokens(tag: Tag) -> list[str]:
+    tokens: list[str] = []
+    for cls in tag.get("class") or []:
+        tokens.extend(re.split(r"[_-]+", cls.lower()))
+    tag_id = (tag.get("id") or "").strip()
+    if tag_id:
+        tokens.extend(re.split(r"[_-]+", tag_id.lower()))
+    return tokens
+
+
+def tag_has_ad_class(tag: Tag) -> bool:
+    if AD_CLASS_TOKENS.intersection(_tag_class_tokens(tag)):
+        return True
+    marker = " ".join(tag.get("class") or []) + " " + (tag.get("id") or "")
+    return bool(AD_CLASS_COMPOUND_RE.search(marker))
+
+
 def should_drop_tag(tag: Tag) -> bool:
     if not isinstance(tag, Tag):
         return False
@@ -82,9 +106,7 @@ def should_drop_tag(tag: Tag) -> bool:
         return True
     if tag.name and tag.name.startswith("mp-"):
         return True
-    cls = " ".join(tag.get("class") or [])
-    tid = tag.get("id") or ""
-    if AD_CLASS_RE.search(cls) or AD_CLASS_RE.search(tid):
+    if tag_has_ad_class(tag):
         return True
     if tag.get("data-ad") or tag.get("data-card-type") == "ad":
         return True
@@ -127,9 +149,12 @@ def resolve_img_url(tag: Tag) -> str:
 def is_ad_image(tag: Tag) -> bool:
     if tag.name != "img":
         return False
-    for attr in ("class", "id", "alt", "data-type"):
-        if AD_CLASS_RE.search(str(tag.get(attr) or "")):
-            return True
+    if tag_has_ad_class(tag):
+        return True
+    alt = str(tag.get("alt") or "")
+    data_type = str(tag.get("data-type") or "")
+    if re.search(r"\bad\b", alt, re.I) or re.search(r"\bad\b", data_type, re.I):
+        return True
     url = resolve_img_url(tag)
     if url and AD_URL_RE.search(url):
         return True
@@ -140,8 +165,7 @@ def is_ad_image(tag: Tag) -> bool:
     for _ in range(4):
         if not isinstance(parent, Tag):
             break
-        cls = " ".join(parent.get("class") or [])
-        if AD_CLASS_RE.search(cls):
+        if tag_has_ad_class(parent):
             return True
         parent = parent.parent
     return False
@@ -313,11 +337,52 @@ def render_image_markdown(
     return ""
 
 
+def is_chapter_title_text(text: str) -> bool:
+    text = (text or "").strip()
+    if len(text) < 6:
+        return False
+    if CHAPTER_NUM_RE.match(text):
+        return False
+    if re.match(r"^\d+\.\s", text):
+        return False
+    return True
+
+
+def merge_chapter_blocks(blocks):
+    merged = []
+    items = list(blocks)
+    i = 0
+    while i < len(items):
+        block = items[i]
+        if block[0] == "text" and CHAPTER_NUM_RE.match(block[1].strip()):
+            num = block[1].strip()
+            j = i + 1
+            while j < len(items) and items[j][0] in {"img", "bg"}:
+                j += 1
+            if j < len(items):
+                nxt = items[j]
+                title = ""
+                if nxt[0] == "heading":
+                    title = nxt[2].strip()
+                elif nxt[0] == "text" and is_chapter_title_text(nxt[1]):
+                    title = nxt[1].strip()
+                if title:
+                    merged.append(("heading", "h3", f"{num} {title}"))
+                    i = j + 1
+                    continue
+        merged.append(block)
+        i += 1
+    return merged
+
+
 def linear_content_blocks(root: Tag):
     queue: list[Tag | NavigableString] = list(root.children)
     while queue:
         node = queue.pop(0)
         if isinstance(node, NavigableString):
+            text = str(node).strip()
+            if text and not is_promo_text(text):
+                yield ("text", text)
             continue
         if not isinstance(node, Tag) or should_drop_tag(node):
             continue
@@ -344,12 +409,24 @@ def linear_content_blocks(root: Tag):
                 yield ("img", img)
             continue
 
+        if node.name == "span":
+            text = inline_text(node).strip()
+            if text and not is_promo_text(text):
+                yield ("text", text)
+            continue
+
+        if node.name in INLINE_HEADING_TAGS:
+            text = inline_text(node).strip()
+            if text and not is_promo_text(text):
+                yield ("heading", "h3", text)
+            continue
+
         if node.name in CONTAINER_TAGS:
             queue[:0] = list(node.children)
             continue
 
         text = inline_text(node).strip()
-        if text and not is_promo_text(text) and len(text) > 30:
+        if text and not is_promo_text(text) and len(text) > 8:
             yield ("text", text)
 
 
@@ -364,7 +441,7 @@ def content_to_markdown(
     parts: list[str] = []
     seen_img_urls: set[str] = set()
 
-    for block in linear_content_blocks(content_root):
+    for block in merge_chapter_blocks(linear_content_blocks(content_root)):
         if block[0] == "heading":
             _, tag, text = block
             level = int(tag[1])

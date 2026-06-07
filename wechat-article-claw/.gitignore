@@ -1,5 +1,5 @@
 output/
-credentials.json
+wechat_env.json
 credentials_test.json
 .venv/
 __pycache__/

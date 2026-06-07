@@ -1,19 +1,6 @@
 # llm-claw
 
-LLM / Agent 相关抓取与剪藏工具集，配合 [utils](https://github.com/dragoncheng/utils) 中的 `cslogin` 使用。
-
-## 克隆
-
-```bash
-git clone git@github.com:dragoncheng/llm-claw.git
-```
-
-在 `utils` 仓库中作为 submodule 引入：
-
-```bash
-git submodule add git@github.com:dragoncheng/llm-claw.git llm-claw
-git submodule update --init --recursive
-```
+LLM / Agent 相关抓取与剪藏工具集
 
 ## 子模块
 
@@ -21,7 +8,7 @@ git submodule update --init --recursive
 |------|------|
 | [feeds-claw](feeds-claw/) | 多平台信息流剪藏（微信 / 微博 / 抖音 / X 等）→ Obsidian `14_feeds` |
 | [wechat-article-claw](wechat-article-claw/) | 微信公众号扫码登录、全量爬虫 |
-| [weibo_claw](weibo_claw/) | 微博二维码登录（Playwright） |
+| [weibo_claw](weibo_claw/) | 微博扫码登录，Cookie 写入 `weibo_env.json` |
 | [wx_channels_claw](wx_channels_claw/) | 微信视频号 |
 | [otp](otp/) | OTP 工具 |
 
@@ -35,23 +22,20 @@ export CSLOGIN_WIKI_PATH=/path/to/my-wiki
 python3 save_feed_to_mydoc.py "https://mp.weixin.qq.com/s/..." --dry-run
 ```
 
-## 与 cslogin 集成
-
-在 `utils` 仓库中：
+## cslogin 凭证登录
 
 ```bash
-cslogin feeds save <url> [tag...]
-cslogin wechat save <url> [tag...]   # 剪藏，走 feeds-claw
-cslogin wechat                       # 公众平台扫码，走 wechat-article-claw
+cslogin cookie wechat    # → wechat_env.json
+cslogin cookie yuanbao   # → yuanbao_env.json
+cslogin cookie weibo     # → weibo_env.json
 ```
 
-路径默认为 `$UTILS_PATH/llm-claw/`。
+## LLM_CLAW_ENV_PATH
 
-## 敏感文件
+`LLM_CLAW_ENV_PATH` 表示相关凭证和环境保存的目录；未设置时各子模块默认使用各自脚本所在目录。
 
-以下文件不入库，请本地自行创建：
-
-- `otp/secrets.json`
-- `wechat-article-claw/credentials.json`
-- `wechat-article-claw/config.json`
-- `wechat-article-claw/wechat_token_sync.sh`（参考 `wechat_token_sync.sh.example`）
+| 文件 | 模块 |
+|------|------|
+| `wechat_env.json` | wechat-article-claw |
+| `weibo_env.json` | weibo_claw |
+| `yuanbao_env.json` | wx_channels_claw |

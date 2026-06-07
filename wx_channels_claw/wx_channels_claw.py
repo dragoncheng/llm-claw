@@ -8,7 +8,7 @@
   python3 wx_channels_cli.py yuanbao [--model MODEL] [--search|--no-search] <prompt>
   python3 wx_channels_cli.py yuanbao [--support-functions FUNC[,FUNC...]] <prompt>
 
-Cookie 与 agent_id 保存在当前目录 yuanbao_cookie.json（login 写入；url / yuanbao 自动读取）。
+Cookie 与 agent_id 保存在 yuanbao_env.json（目录由环境变量 LLM_CLAW_ENV_PATH 指定，未设置则用本脚本所在目录）。
 
 依赖（仅 login 需要）:
   pip install playwright && playwright install chromium
@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-COOKIE_FILENAME = "yuanbao_cookie.json"
+ENV_FILENAME = "yuanbao_env.json"
 YUANBAO_HOME = "https://yuanbao.tencent.com/"
 PROBE_SHARE_URL = "https://weixin.qq.com/sph/A0QJjsz9za"
 DEFAULT_CHAT_MODEL_ID = "deep_seek_v3"
@@ -64,8 +64,15 @@ class YuanbaoAuth:
         return self.agent_id
 
 
+def config_dir() -> str:
+    env = os.environ.get("LLM_CLAW_ENV_PATH", "").strip()
+    if env:
+        return os.path.expanduser(env)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def cookie_file_path() -> str:
-    return os.path.join(os.getcwd(), COOKIE_FILENAME)
+    return os.path.join(config_dir(), ENV_FILENAME)
 
 
 # ── Cookie ──────────────────────────────────────────────────────────────
@@ -120,6 +127,7 @@ def save_auth(cookie_str: str, agent_id: str, agent_instance_id: str = "") -> st
     if not agent_id:
         raise SystemExit("缺少 agent_id，请重新 login")
     path = cookie_file_path()
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     payload = {
         "cookie": format_cookie(parts),
         "hy_source": parts.get("hy_source", "web"),
@@ -139,13 +147,13 @@ def load_auth() -> YuanbaoAuth:
     path = cookie_file_path()
     if not os.path.isfile(path):
         raise SystemExit(
-            f"未找到 {COOKIE_FILENAME}，请先在当前目录执行:\n"
+            f"未找到 {path}，请先执行 login（凭证目录: {config_dir()}，可用 LLM_CLAW_ENV_PATH 覆盖）:\n"
             f"  python3 {os.path.basename(__file__)} login"
         )
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
     if isinstance(data, str):
-        raise SystemExit(f"{COOKIE_FILENAME} 缺少 agent_id，请重新执行 login")
+        raise SystemExit(f"{ENV_FILENAME} 缺少 agent_id，请重新执行 login")
     cookie = ""
     if data.get("cookie"):
         cookie = str(data["cookie"]).strip()
@@ -161,9 +169,9 @@ def load_auth() -> YuanbaoAuth:
         data.get("agent_instance_id") or data.get("agentInstanceId") or ""
     ).strip()
     if not cookie or "hy_user=" not in cookie or "hy_token=" not in cookie:
-        raise SystemExit(f"{COOKIE_FILENAME} 中 Cookie 无效")
+        raise SystemExit(f"{ENV_FILENAME} 中 Cookie 无效")
     if not agent_id:
-        raise SystemExit(f"{COOKIE_FILENAME} 缺少 agent_id，请重新执行 login")
+        raise SystemExit(f"{ENV_FILENAME} 缺少 agent_id，请重新执行 login")
     return YuanbaoAuth(cookie=cookie, agent_id=agent_id, agent_instance_id=agent_instance_id)
 
 
@@ -812,7 +820,7 @@ USAGE = f"""用法:
 
 常用模型: {", ".join(KNOWN_CHAT_MODELS)}
 
-凭证文件: ./{COOKIE_FILENAME}（含 cookie、agent_id；当前工作目录）
+凭证文件: LLM_CLAW_ENV_PATH/{ENV_FILENAME}（未设置 LLM_CLAW_ENV_PATH 时为本脚本目录: {config_dir()}）
 """
 
 

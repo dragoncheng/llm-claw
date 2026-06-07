@@ -1,7 +1,9 @@
-import time
-import os
 import json
+import os
+from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright
+
+from claw_env import env_file_path
 
 
 def playwright_login(headless=False):
@@ -95,9 +97,18 @@ def playwright_login(headless=False):
 
 
 if __name__ == "__main__":
-    # 简单的本地测试入口
     cookie, token = playwright_login(headless=False)
     if cookie and token:
-        with open("credentials.json", "w", encoding="utf-8") as f:
-            json.dump({"cookie": cookie, "token": token}, f, indent=2)
-        print("测试完成，写入凭证到 credentials.json")
+        path = env_file_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "cookie": cookie,
+                    "token": token,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                f,
+                indent=2,
+            )
+        print(f"测试完成，写入凭证到 {path}")

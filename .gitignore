@@ -1,9 +1,8 @@
 # Secrets & local config
 otp/secrets.json
-wechat-article-claw/credentials.json
+wechat-article-claw/wechat_env.json
 wechat-article-claw/credentials_test.json
 wechat-article-claw/config.json
-wechat-article-claw/wechat_token_sync.sh
 
 # Runtime / build
 **/.venv/
@@ -12,3 +11,6 @@ wechat-article-claw/wechat_token_sync.sh
 **/output/
 .DS_Store
 wechat-article-claw/login_qrcode.png
+weibo_env.json
+wechat_env.json
+yuanbao_env.json

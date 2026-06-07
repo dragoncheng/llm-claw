@@ -12,9 +12,11 @@ import time
 import os
 import sys
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 
 from fetch_content import fetch_all_content
+from claw_env import env_file_path
 
 try:
     from wechatarticles import PublicAccountsWeb
@@ -29,23 +31,26 @@ def load_config(config_path="config.json"):
         return json.load(f)
 
 
-def save_credentials(cookie, token, path="credentials.json"):
-    """保存凭证到本地文件"""
+def save_credentials(cookie, token, path=None):
+    """保存凭证到 wechat_env.json"""
+    target = Path(path) if path else env_file_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "cookie": cookie,
         "token": token,
-        "updated_at": datetime.now().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    with open(path, "w", encoding="utf-8") as f:
+    with open(target, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-    print(f"[✓] 凭证已保存到 {path}")
+    print(f"[✓] 凭证已保存到 {target}")
 
 
-def load_credentials(path="credentials.json"):
-    """从本地文件加载凭证"""
-    if not os.path.exists(path):
+def load_credentials(path=None):
+    """从 wechat_env.json 加载凭证"""
+    target = Path(path) if path else env_file_path()
+    if not target.is_file():
         return None, None
-    with open(path, "r", encoding="utf-8") as f:
+    with open(target, encoding="utf-8") as f:
         data = json.load(f)
     print(f"[i] 使用已保存的凭证 (更新于 {data.get('updated_at', '未知')})")
     return data["cookie"], data["token"]

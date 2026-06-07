@@ -81,8 +81,9 @@ Crawler/
 ├── README.md           # 本文件
 ├── requirements.txt    # Python 依赖
 ├── config.json         # 目标公众号配置（历史遗留选项）
+├── claw_env.py         # 凭证路径（LLM_CLAW_ENV_PATH / wechat_env.json）
 ├── crawler.py          # 主执行脚本
-├── credentials.json    # 运行后自动保存的临时凭证（自动生成）
+├── wechat_env.json     # 运行后自动保存的凭证（自动生成，勿提交）
 └── output/             # 获取结果文件（自动生成）
 ```
 

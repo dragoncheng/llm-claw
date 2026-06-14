@@ -1,6 +1,6 @@
 ---
 name: wx-channels-claw
-description: 微信视频号信息获取与元宝深度分析。用户给视频号分享链接要元数据时用 url 子命令；要解读、总结、对比或延伸分析时用 yuanbao 子命令并传入用户意图。Cookie 失效时提示 cslogin cookie yuanbao 或 login 刷新。Use when user mentions 微信视频号, channels.weixin.qq.com, weixin.qq.com/sph, 视频号链接, 元宝分析视频.
+description: 微信视频号信息获取与元宝深度分析。用户给视频号分享链接要元数据时用 url；要解读、总结、对比或延伸分析时用 yuanbao。Cookie 失效时提示 cslogin cookie yuanbao 或 login 刷新。Use when user mentions 微信视频号, channels.weixin.qq.com, weixin.qq.com/sph, 视频号链接, 元宝分析视频.
 ---
 
 # wx-channels-claw — 微信视频号
@@ -12,7 +12,7 @@ description: 微信视频号信息获取与元宝深度分析。用户给视频�
 
 | 用户意图 | 子命令 | 说明 |
 |----------|--------|------|
-| 获取视频号**基础信息**（作者、描述、封面、播放/下载链接、点赞评论等） | `url` | 只解析链接，不做 LLM 分析 |
+| 获取视频号**基础信息**（作者、描述、封面、播放/下载链接、点赞评论数等） | `url` | 只解析链接，不做 LLM 分析 |
 | **分析、总结、解读、对比、延伸讨论**视频或账号内容 | `yuanbao` | 把用户意图原样或整理后作为 prompt 传入 |
 
 **判断要点：**
@@ -21,6 +21,8 @@ description: 微信视频号信息获取与元宝深度分析。用户给视频�
 - `yuanbao` 的 prompt 中应包含：用户问题 + 相关视频号分享链接（若对话里已有）
 
 **禁止**用 `web_fetch` / 通用爬虫替代本脚本解析视频号链接。
+
+**评论列表**：当前未实现。若用户要抓取评论，说明暂不支持，可建议其手动查看或使用 `url` 获取评论数量统计（`stats.comment`）。
 
 ## 运行命令
 
@@ -32,15 +34,12 @@ python3 wx_channels_claw.py url "<视频号分享链接>"
 
 # 2) 元宝深度分析（JSON stdout，含 reply 字段）
 python3 wx_channels_claw.py yuanbao "<用户意图与链接，自然语言即可>"
-
-# 可选：--search（默认联网） / --no-search / --model deep_seek_v3
-python3 wx_channels_claw.py yuanbao --search "总结这条视频的核心观点：https://weixin.qq.com/sph/..."
 ```
 
 或通过 cslogin（凭证目录一致时）：
 
 ```bash
-cslogin cookie yuanbao   # 仅 Cookie 过期或首次使用时
+cslogin cookie yuanbao     # 元宝凭证
 ```
 
 ## 输出说明
@@ -63,14 +62,12 @@ cslogin cookie yuanbao   # 仅 Cookie 过期或首次使用时
 > 或 `python3 wx_channels_claw.py login`
 > 完成后我再重新获取/分析。
 
-本地环境可说明会弹出浏览器扫码；云服务器勿自动跑 login，请用户在本地更新 `$LLM_CLAW_ENV_PATH/yuanbao_env.json` 后再继续。
-
 ## 依赖
 
 ```bash
 cd llm-claw/wx_channels_claw
 pip install -r requirements.txt
-# 仅 login 需要：
+# login 需要：
 playwright install chromium
 ```
 

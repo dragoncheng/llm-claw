@@ -4,13 +4,20 @@ wechat-article-claw/wechat_env.json
 wechat-article-claw/credentials_test.json
 wechat-article-claw/config.json
 
+douyin_claw/core/fire_pipeline.py
+douyin_claw/core/fire_incident_util.py
+douyin_claw/reports/
+douyin_claw/SKILL-fire-incident.md
+
 # Runtime / build
 **/.venv/
 **/__pycache__/
 **/*.pyc
 **/output/
+**/node_modules/
 .DS_Store
 wechat-article-claw/login_qrcode.png
 weibo_env.json
 wechat_env.json
 yuanbao_env.json
+douyin_env.json

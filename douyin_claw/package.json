@@ -1,0 +1,8 @@
+{
+  "name": "douyin_claw",
+  "private": true,
+  "description": "Node deps for static/dy_ab.js (a_bogus signing via execjs)",
+  "dependencies": {
+    "jsrsasign": "^11.1.0"
+  }
+}

@@ -8,9 +8,9 @@
   python3 wx_channels_cli.py yuanbao [--model MODEL] [--search|--no-search] <prompt>
   python3 wx_channels_cli.py yuanbao [--support-functions FUNC[,FUNC...]] <prompt>
 
-Cookie 与 agent_id 保存在 yuanbao_env.json（目录由环境变量 LLM_CLAW_ENV_PATH 指定，未设置则用本脚本所在目录）。
+Cookie 与 agent_id 保存在 yuanbao_env.json（目录由 LLM_CLAW_ENV_PATH 指定，未设置则用本脚本目录）。
 
-依赖（仅 login 需要）:
+依赖（login 需要）:
   pip install playwright && playwright install chromium
 """
 
@@ -592,8 +592,6 @@ def cmd_url(share_url: str) -> int:
     profile = fetch_video_profile(share_url.strip(), auth)
     print(json.dumps(profile, ensure_ascii=False, indent=2))
     return 0
-
-
 # ── yuanbao（对话）──────────────────────────────────────────────────────
 
 
@@ -802,7 +800,6 @@ def cmd_yuanbao(argv: list[str]) -> int:
     )
     return 0
 
-
 # ── main ────────────────────────────────────────────────────────────────
 
 
@@ -820,7 +817,9 @@ USAGE = f"""用法:
 
 常用模型: {", ".join(KNOWN_CHAT_MODELS)}
 
-凭证文件: LLM_CLAW_ENV_PATH/{ENV_FILENAME}（未设置 LLM_CLAW_ENV_PATH 时为本脚本目录: {config_dir()}）
+凭证文件:
+  元宝: LLM_CLAW_ENV_PATH/{ENV_FILENAME}
+  未设置 LLM_CLAW_ENV_PATH 时目录: {config_dir()}
 """
 
 

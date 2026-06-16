@@ -24,6 +24,7 @@ class SearchResult:
     method: str = "api"
     nil_type: str = ""
     api_error: str = ""
+    playwright_error: str = ""
     raw_count: int = 0
     filtered_out: int = 0
 
@@ -34,6 +35,16 @@ def search_nil_type(res: dict[str, Any]) -> str:
 
 
 def format_search_failure(result: SearchResult, keyword: str) -> str:
+    if result.playwright_error:
+        base = result.playwright_error
+        if result.nil_type == "verify_check":
+            base += (
+                f"\n\n此外 API 返回 verify_check（关键词「{keyword}」）。"
+                "若网络恢复后仍无结果，请 cslogin cookie douyin read 并在 Chrome 内手动搜索验证。"
+            )
+        elif result.api_error:
+            base += f"\n\nAPI 错误: {result.api_error[:200]}"
+        return base
     if result.nil_type == "verify_check":
         if result.method == "playwright":
             return (
@@ -203,9 +214,10 @@ class DouyinClient:
             api_error = str(exc)
 
         pw_nil = ""
+        pw_err = ""
         if not raw_items:
             method = "playwright"
-            raw_items, pw_nil = search_via_playwright(
+            raw_items, pw_nil, pw_err = search_via_playwright(
                 self._cookie_str, opts.keyword, max(opts.num, 10)
             )
             if raw_items:
@@ -221,6 +233,7 @@ class DouyinClient:
             method=method,
             nil_type=nil_type,
             api_error=api_error,
+            playwright_error=pw_err,
             raw_count=raw_count,
             filtered_out=raw_count - len(videos),
         )

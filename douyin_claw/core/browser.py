@@ -17,6 +17,65 @@ DEFAULT_CDP_PORT = 9222
 DOUYIN_HOME = "https://www.douyin.com/"
 
 
+def _proxy_from_env() -> dict[str, str] | None:
+    for key in (
+        "HTTPS_PROXY", "https_proxy",
+        "HTTP_PROXY", "http_proxy",
+        "ALL_PROXY", "all_proxy",
+    ):
+        val = os.environ.get(key, "").strip()
+        if val:
+            return {"server": val}
+    return None
+
+
+def _is_connection_error(msg: str) -> bool:
+    markers = (
+        "ERR_CONNECTION_RESET",
+        "ERR_CONNECTION_REFUSED",
+        "ERR_CONNECTION_CLOSED",
+        "ERR_NETWORK_CHANGED",
+        "ERR_INTERNET_DISCONNECTED",
+        "Connection reset",
+        "Connection aborted",
+    )
+    return any(m in msg for m in markers)
+
+
+def _format_network_error(err: str) -> str:
+    proxy_hint = ""
+    if not _proxy_from_env():
+        proxy_hint = (
+            "  · 若 Chrome 能开抖音但脚本不行，多半是 Playwright 未走系统代理；"
+            "可设置 export HTTPS_PROXY=http://127.0.0.1:7890（端口按 Clash 等实际为准）\n"
+        )
+    return (
+        "无法连接 www.douyin.com（连接被重置或拒绝）。\n"
+        "请确认：\n"
+        "  · 本机 Chrome 能否打开 https://www.douyin.com\n"
+        + proxy_hint +
+        "  · 海外网络需可访问大陆的节点；国内若开全局 VPN 可尝试关闭后重试\n"
+        f"  详情: {err[:240]}"
+    )
+
+
+def douyin_network_ok(*, timeout: float = 8.0) -> tuple[bool, str]:
+    import requests
+
+    try:
+        resp = requests.get(
+            DOUYIN_HOME,
+            headers={"User-Agent": USER_AGENT},
+            timeout=timeout,
+            verify=False,
+        )
+        if resp.status_code >= 500:
+            return False, f"HTTP {resp.status_code}"
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
 def _playwright_cookies(parsed: dict[str, str]) -> list[dict[str, str]]:
     return [
         {"name": k, "value": v, "domain": ".douyin.com", "path": "/"}
@@ -29,7 +88,11 @@ def _launch_browser(p, *, headless: bool = True, for_login: bool = False):
     # headless 搜索须用 Playwright 内置 Chromium（与 DouYin_Spider 一致）。
     # channel=chrome 的 headless 模式易被抖音识别，search/single 会返回 verify_check。
     if headless:
-        return p.chromium.launch(headless=True)
+        opts: dict[str, Any] = {"headless": True, "args": list(CHROME_ARGS)}
+        proxy = _proxy_from_env()
+        if proxy:
+            opts["proxy"] = proxy
+        return p.chromium.launch(**opts)
     if for_login:
         # 登录须用户手动操作：用内置 Chromium，避免 channel=chrome 窗口偶发无法点击/输入。
         return p.chromium.launch(headless=False, args=CHROME_ARGS)
@@ -41,6 +104,20 @@ def _launch_browser(p, *, headless: bool = True, for_login: bool = False):
         )
     except Exception:
         return p.chromium.launch(headless=False, args=CHROME_ARGS)
+
+
+def _launch_search_browser(p, *, headless: bool = True, channel: str | None = None):
+    opts: dict[str, Any] = {"headless": headless, "args": list(CHROME_ARGS)}
+    proxy = _proxy_from_env()
+    if proxy:
+        opts["proxy"] = proxy
+    if channel:
+        opts["channel"] = channel
+        try:
+            return p.chromium.launch(**opts)
+        except Exception:
+            opts.pop("channel", None)
+    return p.chromium.launch(**opts)
 
 
 def _launch_real_chrome(p):
@@ -201,7 +278,14 @@ def _extract_awemes_from_search_payload(data: dict[str, Any]) -> list[dict[str, 
     return out
 
 
-def search_via_playwright(cookie_str: str, keyword: str, num: int) -> tuple[list[dict[str, Any]], str]:
+def _search_via_playwright_once(
+    cookie_str: str,
+    keyword: str,
+    num: int,
+    *,
+    headless: bool = True,
+    channel: str | None = None,
+) -> tuple[list[dict[str, Any]], str]:
     from playwright.sync_api import sync_playwright
 
     from .dy_util import trans_cookies
@@ -237,11 +321,19 @@ def search_via_playwright(cookie_str: str, keyword: str, num: int) -> tuple[list
             pass
 
     with sync_playwright() as p:
-        browser = _launch_browser(p, headless=True)
-        context = browser.new_context(user_agent=USER_AGENT)
+        browser = _launch_search_browser(p, headless=headless, channel=channel)
+        context = browser.new_context(
+            user_agent=USER_AGENT,
+            locale="zh-CN",
+            viewport={"width": 1280, "height": 900},
+        )
+        context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        )
         context.add_cookies(_playwright_cookies(parsed))
         page = context.new_page()
         page.on("response", handle_response)
+        page.goto(DOUYIN_HOME, wait_until="domcontentloaded", timeout=60000)
         page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
         for _ in range(8):
             if len(collected) >= num:
@@ -254,6 +346,40 @@ def search_via_playwright(cookie_str: str, keyword: str, num: int) -> tuple[list
     if collected:
         nil_type = ""
     return collected[:num], nil_type
+
+
+def search_via_playwright(
+    cookie_str: str, keyword: str, num: int
+) -> tuple[list[dict[str, Any]], str, str]:
+    """Playwright 搜索兜底。返回 (items, nil_type, error_message)。"""
+    if os.environ.get("DOUYIN_CLAW_NO_PW_SEARCH"):
+        return [], "", "已跳过 Playwright 搜索（DOUYIN_CLAW_NO_PW_SEARCH=1）"
+
+    ok, net_err = douyin_network_ok()
+    if not ok:
+        return [], "", _format_network_error(net_err)
+
+    strategies: list[dict[str, Any]] = [{"headless": True, "channel": None}]
+    if os.environ.get("DOUYIN_CLAW_PW_VISIBLE"):
+        strategies.append({"headless": False, "channel": "chrome"})
+
+    last_err = ""
+    for strat in strategies:
+        try:
+            items, nil = _search_via_playwright_once(
+                cookie_str, keyword, num,
+                headless=bool(strat["headless"]),
+                channel=strat["channel"],
+            )
+            return items, nil, ""
+        except Exception as exc:
+            last_err = str(exc)
+            if not _is_connection_error(last_err):
+                break
+
+    if _is_connection_error(last_err):
+        return [], "", _format_network_error(last_err)
+    return [], "", f"Playwright 搜索失败: {last_err[:300]}"
 
 
 def wait_for_search_ready(page, keyword: str, *, timeout_sec: int = 180) -> bool:

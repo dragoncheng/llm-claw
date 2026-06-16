@@ -10,7 +10,7 @@ LLM / Agent 相关抓取与剪藏工具集
 | [wechat-article-claw](wechat-article-claw/) | 微信公众号扫码登录、全量爬虫 |
 | [weibo_claw](weibo_claw/) | 微博扫码登录，Cookie 写入 `weibo_env.json` |
 | [wx_channels_claw](wx_channels_claw/) | 微信视频号 |
-| [douyin_claw](douyin_claw/) | 抖音 Cookie 登录、关键词搜索、评论与 LLM 分析 prompt |
+| [douyin_claw](douyin_claw/) | 抖音 Cookie、搜索、单条 analyze、`batch` 多关键词去重合并 |
 | [otp](otp/) | OTP 工具 |
 
 ## 快速开始（feeds 剪藏）
@@ -33,7 +33,12 @@ npm install   # 仅 jsrsasign（a_bogus 签名）
 playwright install chromium
 python3 douyin_claw.py login
 python3 douyin_claw.py search --num 10 "关键词"
-python3 douyin_claw.py 世界杯 --output ./reports   # 世界杯批量流水线
+
+# 多关键词 batch（词表见 douyin_claw/SKILL.md）
+python3 douyin_claw.py batch \
+  --name 企业火灾 \
+  --queries 企业火灾 工厂火灾 \
+  --topic-keywords 火灾,着火,起火,爆炸,消防
 ```
 
 ## cslogin 凭证登录
@@ -42,7 +47,7 @@ python3 douyin_claw.py 世界杯 --output ./reports   # 世界杯批量流水线
 cslogin cookie wechat    # → wechat_env.json
 cslogin cookie yuanbao   # → yuanbao_env.json
 cslogin cookie weibo     # → weibo_env.json
-cslogin cookie douyin    # → douyin_env.json
+cslogin cookie douyin    # → douyin_env.json（保存后可选同步到服务器，见 wechat_token_sync.sh）
 ```
 
 ## LLM_CLAW_ENV_PATH

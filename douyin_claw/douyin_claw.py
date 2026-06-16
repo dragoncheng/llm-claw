@@ -7,7 +7,7 @@
   python3 douyin_claw.py search [选项] <关键词>
   python3 douyin_claw.py video [--comments N] <链接或aweme_id>
   python3 douyin_claw.py analyze [搜索选项] [--comments-per-video N] [--task 任务] <关键词>
-  python3 douyin_claw.py fire [--months N] [--per-query N] [--comments-per-video N] [--task 任务] [--output DIR]
+  python3 douyin_claw.py batch --queries ... --topic-keywords ... [选项]
 
 Cookie 保存在 douyin_env.json（目录由 LLM_CLAW_ENV_PATH 指定）。
 
@@ -18,6 +18,57 @@ Cookie 保存在 douyin_env.json（目录由 LLM_CLAW_ENV_PATH 指定）。
 
 from __future__ import annotations
 
+import os
+import sys
+
+
+def _prefer_local_venv() -> None:
+    if os.environ.get("DOUYIN_CLAW_NO_VENV"):
+        return
+    root = os.path.dirname(os.path.abspath(__file__))
+    venv_dir = os.path.abspath(os.path.join(root, ".venv"))
+    if os.path.normpath(sys.prefix) == os.path.normpath(venv_dir):
+        return
+    # 已在其它 virtualenv 中，不强行切换
+    if sys.base_prefix != sys.prefix:
+        return
+    for name in ("python3", "python"):
+        venv_py = os.path.join(venv_dir, "bin", name)
+        if os.path.isfile(venv_py) and os.access(venv_py, os.X_OK):
+            os.execv(venv_py, [venv_py, *sys.argv])
+            return
+
+
+def _require_deps() -> None:
+    missing: list[str] = []
+    for mod, pip_name in (
+        ("execjs", "PyExecJS"),
+        ("requests", "requests"),
+        ("playwright", "playwright"),
+    ):
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(pip_name)
+    if not missing:
+        return
+    root = os.path.dirname(os.path.abspath(__file__))
+    raise SystemExit(
+        "缺少 Python 依赖: "
+        + ", ".join(missing)
+        + "\n请执行:\n"
+        f"  cd {root}\n"
+        "  python3 -m venv .venv\n"
+        "  .venv/bin/pip install -r requirements.txt\n"
+        "  cd .. && npm install   # 在 douyin_claw 目录\n"
+        "  .venv/bin/playwright install chromium\n"
+        f"  .venv/bin/python {os.path.basename(__file__)} ..."
+    )
+
+
+_prefer_local_venv()
+_require_deps()
+
 import json
 import os
 import sys
@@ -26,6 +77,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from core.batch_pipeline import run_batch_pipeline
+from core.batch_util import DEFAULT_ENTERPRISE_KEYWORDS, FilterKeywords, parse_keyword_csv
 from core.client import (
     DouyinClient,
     SearchOptions,
@@ -33,7 +86,6 @@ from core.client import (
     build_analysis_input,
     format_search_failure,
 )
-from core.fire_pipeline import run_fire_pipeline
 from core.dy_util import trans_cookies
 
 ENV_FILENAME = "douyin_env.json"
@@ -123,12 +175,12 @@ def _finalize_cookie_save(parts: dict[str, str], *, source: str) -> int:
         print("Cookie 缺少有效 sessionid / uid_tt，请确认已在浏览器完成抖音登录", file=sys.stderr)
         return 1
 
-    verify_keyword = os.environ.get("DOUYIN_LOGIN_VERIFY_KEYWORD", "火灾").strip() or "火灾"
+    verify_keyword = os.environ.get("DOUYIN_LOGIN_VERIFY_KEYWORD", "世界杯").strip() or "世界杯"
     cookie = "; ".join(f"{k}={v}" for k, v in parts.items())
     path = save_cookie(cookie)
 
     print("正在探测搜索能力…", file=sys.stderr)
-    test_items, _ = search_via_playwright(cookie, verify_keyword, 3)
+    test_items, _, pw_err = search_via_playwright(cookie, verify_keyword, 3)
     result = {
         "ok": True,
         "file": path,
@@ -137,7 +189,11 @@ def _finalize_cookie_save(parts: dict[str, str], *, source: str) -> int:
         "playwright_probe_count": len(test_items),
         "has_s_v_web_id": bool(parts.get("s_v_web_id")),
     }
+    if pw_err:
+        result["playwright_error"] = pw_err
     if not test_items:
+        if pw_err:
+            print(pw_err, file=sys.stderr)
         if source == "chrome_profile":
             hint = (
                 "Cookie 已保存，但搜索探测仍为 0 条。"
@@ -168,7 +224,7 @@ def cmd_login() -> int:
 
     from core.browser import search_via_playwright, _launch_browser, _new_browser_context
 
-    verify_keyword = os.environ.get("DOUYIN_LOGIN_VERIFY_KEYWORD", "火灾").strip() or "火灾"
+    verify_keyword = os.environ.get("DOUYIN_LOGIN_VERIFY_KEYWORD", "世界杯").strip() or "世界杯"
     print("启动 Playwright Chromium 登录（备用方式，搜索 Cookie 质量可能不如 Chrome）…", file=sys.stderr)
     print("更推荐: cslogin cookie douyin  或  cookie chrome", file=sys.stderr)
     print("请在浏览器中完成登录（扫码/手机/验证码）。", file=sys.stderr)
@@ -260,7 +316,7 @@ def _read_clipboard_cookie() -> str:
 
 
 def cmd_cookie_guide(argv: list[str]) -> int:
-    verify_keyword = os.environ.get("DOUYIN_LOGIN_VERIFY_KEYWORD", "火灾").strip() or "火灾"
+    verify_keyword = os.environ.get("DOUYIN_LOGIN_VERIFY_KEYWORD", "世界杯").strip() or "世界杯"
 
     print("", file=sys.stderr)
     print("抖音 Cookie 获取（DouYin_Spider 同款：你自己的 Chrome + F12）", file=sys.stderr)
@@ -322,7 +378,7 @@ def cmd_cookie_read(argv: list[str]) -> int:
             f"未知参数: {argv[i]}（可用: --profile NAME | --list-profiles | --quick）"
         )
 
-    verify_keyword = os.environ.get("DOUYIN_LOGIN_VERIFY_KEYWORD", "火灾").strip() or "火灾"
+    verify_keyword = os.environ.get("DOUYIN_LOGIN_VERIFY_KEYWORD", "世界杯").strip() or "世界杯"
 
     if not quick:
         print("", file=sys.stderr)
@@ -376,7 +432,7 @@ def cmd_cookie_chrome(argv: list[str]) -> int:
             continue
         raise SystemExit(f"未知参数: {argv[i]}（可用: --cdp URL | --port N）")
 
-    verify_keyword = os.environ.get("DOUYIN_LOGIN_VERIFY_KEYWORD", "火灾").strip() or "火灾"
+    verify_keyword = os.environ.get("DOUYIN_LOGIN_VERIFY_KEYWORD", "世界杯").strip() or "世界杯"
 
     if not cdp_url:
         print("正在启动 Chrome（系统进程，非 Playwright 控制，可正常点击/输入）…", file=sys.stderr)
@@ -569,34 +625,72 @@ def cmd_analyze(argv: list[str]) -> int:
     return 0
 
 
-def cmd_fire(argv: list[str]) -> int:
+def _collect_flag_values(argv: list[str], start: int) -> tuple[list[str], int]:
+    values: list[str] = []
+    i = start
+    while i < len(argv) and not argv[i].startswith('--'):
+        values.append(argv[i])
+        i += 1
+    return values, i
+
+
+def parse_batch_argv(argv: list[str]) -> dict[str, Any]:
     months = 3.0
     per_query = 35
     comments_per_video = 0
-    output_dir = ''
     task = ''
+    report_name = 'douyin_batch'
+    queries: list[str] = []
+    topic_keywords: tuple[str, ...] = ()
+    enterprise_keywords: tuple[str, ...] = DEFAULT_ENTERPRISE_KEYWORDS
+
     i = 0
     while i < len(argv):
-        if argv[i] == '--months':
+        arg = argv[i]
+        if arg == '--months':
             months = float(argv[i + 1]); i += 2; continue
-        if argv[i] == '--per-query':
+        if arg == '--per-query':
             per_query = int(argv[i + 1]); i += 2; continue
-        if argv[i] == '--comments-per-video':
+        if arg == '--comments-per-video':
             comments_per_video = int(argv[i + 1]); i += 2; continue
-        if argv[i] == '--task':
+        if arg == '--task':
             task = argv[i + 1]; i += 2; continue
-        if argv[i] == '--output':
-            output_dir = argv[i + 1]; i += 2; continue
-        raise SystemExit(f'未知参数: {argv[i]}')
+        if arg == '--name':
+            report_name = argv[i + 1]; i += 2; continue
+        if arg == '--queries':
+            queries, i = _collect_flag_values(argv, i + 1); continue
+        if arg == '--topic-keywords':
+            topic_keywords = parse_keyword_csv(argv[i + 1]); i += 2; continue
+        if arg == '--enterprise-keywords':
+            enterprise_keywords = parse_keyword_csv(argv[i + 1]); i += 2; continue
+        raise SystemExit(f'未知参数: {arg}')
+
+    if not queries:
+        raise SystemExit(
+            'batch 须指定 --queries（一个或多个搜索词）。\n'
+            '示例见 llm-claw/douyin_claw/SKILL.md'
+        )
+    if not topic_keywords:
+        raise SystemExit(
+            'batch 须指定 --topic-keywords（逗号分隔的主题过滤词）。\n'
+            '示例见 llm-claw/douyin_claw/SKILL.md'
+        )
+
+    return {
+        'months': months,
+        'per_query': per_query,
+        'comments_per_video': comments_per_video,
+        'task': task,
+        'report_name': report_name,
+        'queries': queries,
+        'filter_keywords': FilterKeywords(topic=topic_keywords, enterprise=enterprise_keywords),
+    }
+
+
+def cmd_batch(argv: list[str]) -> int:
+    opts = parse_batch_argv(argv)
     client = DouyinClient(load_cookie())
-    result = run_fire_pipeline(
-        client,
-        months=months,
-        per_query=per_query,
-        output_dir=output_dir or None,
-        comments_per_video=comments_per_video,
-        task=task,
-    )
+    result = run_batch_pipeline(client, **opts)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
@@ -608,7 +702,9 @@ USAGE = f"""用法:
   python3 {os.path.basename(__file__)} search [选项] <关键词>
   python3 {os.path.basename(__file__)} video [--comments N] <链接或aweme_id>
   python3 {os.path.basename(__file__)} analyze [搜索选项] [--comments-per-video N] [--task 任务] <关键词>
-  python3 {os.path.basename(__file__)} fire [--months N] [--per-query N] [--comments-per-video N] [--task 任务] [--output DIR]
+  python3 {os.path.basename(__file__)} batch --queries <词1> [词2 ...] --topic-keywords <逗号分隔> [选项]
+
+batch：多关键词搜索、主题过滤、去重合并；返回 JSON 供 Agent/LLM 继续分析（见 SKILL.md）。
 
 安装:
   pip install -r requirements.txt
@@ -642,8 +738,8 @@ def main(argv: list[str] | None = None) -> int:
         if len(args) < 2:
             raise SystemExit("缺少参数: 关键词")
         return cmd_analyze(args[1:])
-    if cmd == "fire":
-        return cmd_fire(args[1:])
+    if cmd == "batch":
+        return cmd_batch(args[1:])
     raise SystemExit(f"未知命令: {cmd}\n\n{USAGE}")
 
 
